@@ -11,6 +11,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request){
   log.Print("/ called and index.html served")
 }
 
+//serve video file to client
 func File(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./video.mp4")
 }
