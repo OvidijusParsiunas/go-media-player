@@ -1,1 +1,1 @@
-A web application which leverages Go and Vuejs to host video content online.
+A web application that leverages Go and Vuejs to host video content online.
