@@ -15,12 +15,6 @@ func getVideoById(id string) string {
 	}
 }
 
-//serve index.html file to client
-func serveIndex(response http.ResponseWriter, request *http.Request){
-  http.ServeFile(response, request, "./index.html")
-  log.Print("/ called and index.html served")
-}
-
 //serve video file to client
 func videoServer(response http.ResponseWriter, request *http.Request) {
 	//get URL variables defined in the router
@@ -38,8 +32,10 @@ func videoServer(response http.ResponseWriter, request *http.Request) {
 func main() {
 	// Using a router lets us be more flexible with URL variables
 	router := mux.NewRouter()
-	router.HandleFunc("/", serveIndex)
-	router.HandleFunc("/video/{id}", videoServer)
+  router.HandleFunc("/video/{id}", videoServer)
+
+  //Serve static files to the client
+  router.PathPrefix("/").Handler(http.FileServer(http.Dir("./public/")))
 
 	// the router handles all requests, then passes them along to the appropriate function
 	http.Handle("/", router)
