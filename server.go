@@ -39,14 +39,16 @@ func videoServer(response http.ResponseWriter, request *http.Request) {
 }
 
 type File struct {
-	name string
+	id string
+	title string
 	ext string
 	bytes []byte
 }
 
-func NewFile(name, ext string, bytes []byte) *File {
+func NewFile(id, title, ext string, bytes []byte) *File {
 	return &File {
-		name: name,
+		id: id,
+		title: title,
 		ext: ext,
 		bytes: bytes,
 	}
@@ -70,13 +72,10 @@ func UploadRequest(videoRepo VideoRepository) WrappedHandler {
 		
 		ext := strings.Split(headers.Filename, ".")[1]
 		
-		id, err := uuid.NewV4()
-		if err != nil {
-			panic(err)
-		}
-
-		filename := id.String()
-		newFile := NewFile(filename, ext, buffer.Bytes())
+		uuid := uuid.NewV4()
+		id := uuid.String()
+		filename := "hi"
+		newFile := NewFile(id, filename, ext, buffer.Bytes())
 
 		videoRepo.Upload(newFile)
 	}
@@ -92,8 +91,12 @@ func retrieveVideo(videoRepo VideoRepository) WrappedHandler {
 
 //initiate the http server with a '/' endpoint which will call the serveIndex function
 func main() {
-	// videoRepo := DummyVideoRepo {}
-	videoRepo := NewFileSystem(".")
+	fileSystem := NewFileSystem(".")
+	protocol, host, port := "http", "localhost", 9200
+	//host := 172.17.0.2
+	elasticSearch := NewElasticsearch(protocol, host, port)
+	defer elasticSearch.client.Stop()
+	videoRepo := NewLocalVideoRepository(fileSystem, elasticSearch)
 	// Using a router lets us be more flexible with URL variables
 	router := mux.NewRouter()
 	router.HandleFunc("/", serveIndex)
