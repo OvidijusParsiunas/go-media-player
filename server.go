@@ -39,18 +39,20 @@ func videoServer(response http.ResponseWriter, request *http.Request) {
 	log.Printf("Serving video with ID: `%s`, Filename: `%s`", vars["id"], filename)
 }
 
+// This File struct will contain all the information needed to store the file in a database
 type File struct {
-	id string
-	title string
-	ext string
+	id    string
+	name  string
+	ext   string
 	bytes []byte
 }
 
-func NewFile(id, title, ext string, bytes []byte) *File {
-	return &File {
-		id: id,
-		title: title,
-		ext: ext,
+// Contructor for the File struct
+func NewFile(id, name, ext string, bytes []byte) *File {
+	return &File{
+		id:    id,
+		name:  name,
+		ext:   ext,
 		bytes: bytes,
 	}
 }
@@ -62,6 +64,7 @@ func UploadRequest(videoRepo VideoRepository) WrappedHandler {
 		if err != nil {
 			panic(err)
 		}
+
 		defer file.Close()
 
 		buffer := bytes.NewBuffer(nil)
@@ -72,13 +75,13 @@ func UploadRequest(videoRepo VideoRepository) WrappedHandler {
 		log.Printf("%d bytes copied", numOfBytes)
 
 		ext := strings.Split(headers.Filename, ".")[1]
-		
+
 		uuid := uuid.NewV4()
 		id := uuid.String()
-		filename := "hi"
+		filename := request.FormValue("title")
 		newFile := NewFile(id, filename, ext, buffer.Bytes())
 
-		videoRepo.Upload(newFile)
+		videoRepo.Upload(newFile, request.Context())
 	}
 }
 
@@ -92,11 +95,10 @@ func retrieveVideo(videoRepo VideoRepository) WrappedHandler {
 
 //initiate the http server with a '/' endpoint which will call the serveIndex function
 func main() {
+	// videoRepo := DummyVideoRepo {}
 	fileSystem := NewFileSystem(".")
 	protocol, host, port := "http", "localhost", 9200
-	//host := 172.17.0.2
 	elasticSearch := NewElasticsearch(protocol, host, port)
-	defer elasticSearch.client.Stop()
 	videoRepo := NewLocalVideoRepository(fileSystem, elasticSearch)
 	// Using a router lets us be more flexible with URL variables
 	router := mux.NewRouter()
