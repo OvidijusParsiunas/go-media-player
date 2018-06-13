@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -11,33 +12,20 @@ import (
 
 type VideoRepository interface {
 	Upload(*File, context.Context)
-	Download()
+	GetContent(string) io.ReadSeeker
 }
 
 type LocalVideoRepository struct {
-	fileSystem    *FileSystem
-	elasticSearch *Elasticsearch
-}
-
-type FileSystem struct {
-	loc string
+	location string
 }
 
 type Elasticsearch struct {
 	client *elastic.Client
 }
 
-func NewLocalVideoRepository(fileSystem *FileSystem, elasticSearch *Elasticsearch) *LocalVideoRepository {
+func NewLocalVideoRepository(location string) *LocalVideoRepository {
 	return &LocalVideoRepository{
-		fileSystem:    fileSystem,
-		elasticSearch: elasticSearch,
-	}
-}
-
-func NewFileSystem(location string) *FileSystem {
-	log.Print("New FileSystem created")
-	return &FileSystem{
-		loc: location,
+		location: location,
 	}
 }
 
@@ -56,24 +44,22 @@ func NewElasticsearch(protocol, host string, port int) *Elasticsearch {
 
 func (localVideoRepo *LocalVideoRepository) Upload(file *File, ctx context.Context) {
 	log.Print("LocalVideoRepository upload method called")
-	localVideoRepo.fileSystem.SaveVideo(file)
-
-	// Do Elasticsearch stuff
-	localVideoRepo.elasticSearch.SaveMetaData(file, ctx)
+	localVideoRepo.SaveVideo(file)
 }
 
-func (filesystem *FileSystem) Download() {
+func (filesystem *LocalVideoRepository) GetContent(fileId string) io.ReadSeeker {
 	log.Print("FileSystem Download called")
+	return nil
 }
 
 func (localVideoRepo *LocalVideoRepository) Download() {
 	log.Print("LocalVideoRepository downlaod method called")
 }
 
-func (filesystem *FileSystem) SaveVideo(file *File) {
-	log.Print(filesystem.loc)
+func (localVideoRepo *LocalVideoRepository) SaveVideo(file *File) {
+	log.Print(localVideoRepo.location)
 
-	newPath := fmt.Sprintf("%s/%s.%s", filesystem.loc, file.id, file.ext)
+	newPath := fmt.Sprintf("%s/%s.%s", localVideoRepo.location, file.id, file.ext)
 	log.Printf("New path: %s", newPath)
 
 	newFile, err := os.Create(newPath)
