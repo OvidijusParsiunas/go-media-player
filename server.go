@@ -40,7 +40,7 @@ type VideoMeta struct {
 
 
 // Abstract idea of what a repository for the VideoMeta should be able to do
-type VideoMetaRepository interface{
+type VideoMetaRepository interface {
     CreateEntry(context.Context, string) (*VideoMeta, error)
     retrieveByFileId(context.Context, string) (*VideoMeta, error)
     search(context.Context, string) ([]VideoMeta, error)
@@ -88,6 +88,13 @@ func UploadRequest(videoMetaRepo VideoMetaRepository, videoRepo VideoRepository)
     }
 }
 
+// Called in response to uploading a new file
+func Search(videoMetaRepo VideoMetaRepository) WrappedHandler {
+    return func(response http.ResponseWriter, request *http.Request) {
+        log.Print("Search called")
+
+    }
+}
 
 // Create the elastic video meta repository
 func NewElasticVideoMetaRepository(ctx context.Context, client *elastic.Client) *ElasticVideoMetaRepository {
@@ -188,6 +195,7 @@ func main() {
     router := mux.NewRouter()
     router.HandleFunc("/video/{id}", videoServer(videoRepo))
     router.HandleFunc("/upload", UploadRequest(videoMetaRepo, videoRepo))
+    router.HandleFunc("/search", Search(videoMetaRepo))
 
 
     // Serve static files to the client
