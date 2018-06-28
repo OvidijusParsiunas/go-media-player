@@ -2,7 +2,8 @@ package main
 
 import (
     "context"
-    "fmt"
+    "encoding/json"
+    // "fmt"
     "log"
     "net/http"
     "time"
@@ -52,11 +53,16 @@ type ElasticVideoMetaRepository struct {
     client *elastic.Client
 }
 
+// The ID of an uploaded file
+type FileId struct {
+    Id string
+}
+
 
 // Called in response to uploading a new file
-func UploadRequest(videoMetaRepo VideoMetaRepository, videoRepo VideoRepository) WrappedHandler {
+func UploadFile(videoRepo VideoRepository) WrappedHandler {
     return func(response http.ResponseWriter, request *http.Request) {
-        log.Print("Upload called")
+        log.Print("Upload file called")
 
         // Parse the entered values for the form - i think 1024 is the packet size for the video to upload with?
         err := request.ParseMultipartForm(1024)
@@ -64,14 +70,14 @@ func UploadRequest(videoMetaRepo VideoMetaRepository, videoRepo VideoRepository)
             panic(err)
         }
 
-        // The title of the uploaded video
-        title := request.PostFormValue("title")
+        // // The title of the uploaded video
+        // title := request.PostFormValue("title")
 
-        // Create the metadata entry, currently we only store the Title. This generates an ID for us.
-        videoMeta, err := videoMetaRepo.CreateEntry(request.Context(), title)
-        if err != nil {
-            panic(err)
-        }
+        // // Create the metadata entry, currently we only store the Title. This generates an ID for us.
+        // videoMeta, err := videoMetaRepo.CreateEntry(request.Context(), title)
+        // if err != nil {
+        //     panic(err)
+        // }
 
         // Get the uploaded file
         file, _, err := request.FormFile("upload")        
@@ -81,10 +87,34 @@ func UploadRequest(videoMetaRepo VideoMetaRepository, videoRepo VideoRepository)
         defer file.Close()
 
         // Store the file in the video repository, with the FileID of the given metadata
-        videoRepo.Upload(request.Context(), &file, videoMeta)
+        // videoRepo.Upload(request.Context(), &file, videoMeta)
 
-        // Currently just redirecting directly to the video - in future to a proper page.
-        http.Redirect(response, request, fmt.Sprintf("/video/%s", videoMeta.FileID), http.StatusSeeOther)
+        uploadId := FileId{"hello"}
+
+        response.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(response).Encode(uploadId)
+    }
+}
+
+// Called in response to uploading the metadata for an already  uploaded file
+func UploadMeta(videoMetaRepo VideoMetaRepository) WrappedHandler {
+    return func(response http.ResponseWriter, request *http.Request) {
+        log.Print("Upload meta called")
+
+        // get the values
+        decoder := json.NewDecoder(request.Body)
+        var fields VideoMeta
+        err := decoder.Decode(&fields)
+        if err != nil {
+            panic(err)
+        }
+        log.Println(fields.Title)
+
+        // store it into the meta repo
+        
+
+        response.Header().Set("Content-Type", "application/json")
+        // json.NewEncoder(response).Encode(uploadId)
     }
 }
 
@@ -176,7 +206,7 @@ const mapping = `
 // Initiate the http server
 func main() {
 
-	// Used while setting up Elastic Client
+    // Used while setting up Elastic Client
     ctx := context.Background()
 
     //connect to elasticsearch on localhost:9200
@@ -188,13 +218,14 @@ func main() {
     // Set up an elasticsearch video meta repo
     videoMetaRepo := NewElasticVideoMetaRepository(ctx, elasticClient)
 
-    // Set up a local video repo in the "videos" directory
+    // Set up a local video repo in then "videos" directory
     videoRepo := NewLocalVideoRepository("videos")
 
     // Using a router lets us be more flexible with URL variables
     router := mux.NewRouter()
     router.HandleFunc("/video/{id}", videoServer(videoRepo))
-    router.HandleFunc("/upload", UploadRequest(videoMetaRepo, videoRepo))
+    router.HandleFunc("/upload/file", UploadFile(videoRepo))
+    router.HandleFunc("/upload/meta", UploadMeta(videoMetaRepo))
     router.HandleFunc("/search", Search(videoMetaRepo))
 
 
