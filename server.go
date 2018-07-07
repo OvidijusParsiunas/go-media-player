@@ -8,7 +8,7 @@ import (
     "net/http"
     "time"
     "github.com/gorilla/mux"
-    "github.com/satori/go.uuid"
+    // "github.com/satori/go.uuid"
     "github.com/olivere/elastic"
 )
 
@@ -36,13 +36,13 @@ func videoServer(videoRepo VideoRepository) WrappedHandler {
 // A type which contains metadata to do with the video
 type VideoMeta struct {
     Title  string
-    FileID string
+    FileId string
 }
 
 
 // Abstract idea of what a repository for the VideoMeta should be able to do
 type VideoMetaRepository interface {
-    CreateEntry(context.Context, string) (*VideoMeta, error)
+    CreateEntry(context.Context, *VideoMeta) error
     retrieveByFileId(context.Context, string) (*VideoMeta, error)
     search(context.Context, string) ([]VideoMeta, error)
 }
@@ -70,15 +70,6 @@ func UploadFile(videoRepo VideoRepository) WrappedHandler {
             panic(err)
         }
 
-        // // The title of the uploaded video
-        // title := request.PostFormValue("title")
-
-        // // Create the metadata entry, currently we only store the Title. This generates an ID for us.
-        // videoMeta, err := videoMetaRepo.CreateEntry(request.Context(), title)
-        // if err != nil {
-        //     panic(err)
-        // }
-
         // Get the uploaded file
         file, _, err := request.FormFile("upload")        
         if err != nil {
@@ -87,12 +78,10 @@ func UploadFile(videoRepo VideoRepository) WrappedHandler {
         defer file.Close()
 
         // Store the file in the video repository, with the FileID of the given metadata
-        // videoRepo.Upload(request.Context(), &file, videoMeta)
-
-        uploadId := FileId{"hello"}
+        fileHandle, err := videoRepo.Upload(request.Context(), &file)
 
         response.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(response).Encode(uploadId)
+        json.NewEncoder(response).Encode(fileHandle)
     }
 }
 
@@ -111,14 +100,31 @@ func UploadMeta(videoMetaRepo VideoMetaRepository) WrappedHandler {
         log.Println(fields.Title)
 
         // store it into the meta repo
-        
+        videoMetaRepo.CreateEntry(request.Context(), &fields)
 
         response.Header().Set("Content-Type", "application/json")
         // json.NewEncoder(response).Encode(uploadId)
     }
 }
 
-// Called in response to uploading a new file
+// Get back meta info for a video ID
+func RetrieveMeta(videoMetaRepo VideoMetaRepository) WrappedHandler {
+    return func(response http.ResponseWriter, request *http.Request) {
+        // Get URL variables defined in the router
+        vars := mux.Vars(request)
+        
+        meta, err := videoMetaRepo.retrieveByFileId(request.Context(), vars["id"])
+        if err != nil {
+            panic(err)
+        }
+
+        log.Printf("Getting meta for ID: `%s`", vars["id"])
+        response.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(response).Encode(meta)
+    }
+}
+
+// When searching for video metas by title
 func Search(videoMetaRepo VideoMetaRepository) WrappedHandler {
     return func(response http.ResponseWriter, request *http.Request) {
         log.Print("Search called")
@@ -148,17 +154,11 @@ func NewElasticVideoMetaRepository(ctx context.Context, client *elastic.Client) 
 }
 
 // Create the meta entry - haven't checked if this is working yet...
-func (self *ElasticVideoMetaRepository) CreateEntry(ctx context.Context, name string) (*VideoMeta, error) {
-
-    id := uuid.NewV4().String()
-    videoMeta := VideoMeta {
-        Title: name,
-        FileID: id,
-    }
-
+func (self *ElasticVideoMetaRepository) CreateEntry(ctx context.Context, videoMeta *VideoMeta) error {
     put1, err := self.client.Index().
         Index("video_meta").
         Type("video").
+        Id(videoMeta.FileId).
         BodyJson(videoMeta).
         Do(ctx)
     if err != nil {
@@ -166,12 +166,30 @@ func (self *ElasticVideoMetaRepository) CreateEntry(ctx context.Context, name st
         panic(err)
     }
     log.Printf("Indexed video %s to index %s, type %s\n", put1.Id, put1.Index, put1.Type)
-    return &videoMeta, nil
+    return nil
 }
 
 // Needs some work still - would be used to get the video meta including title.
 func (self *ElasticVideoMetaRepository) retrieveByFileId(ctx context.Context, fileId string) (*VideoMeta, error) {
-    log.Printf("retrieving video")
+    log.Printf("retrieving video meta")
+    get1, err := self.client.Get().
+        Index("video_meta").
+        Type("video").
+        Id(fileId).
+        Do(ctx)
+    if err != nil {
+        return nil, err
+    }
+    if get1.Found {
+        log.Printf("Got document %s in version %d from index %s, type %s\n", get1.Id, get1.Version, get1.Index, get1.Type)
+        var meta VideoMeta
+        err = json.Unmarshal(*get1.Source, &meta)
+        if err != nil {
+            return nil, err
+        }
+        log.Printf("Title is: %s", meta.Title)
+        return &meta, nil
+    }
     return nil, nil
 }
 
@@ -226,6 +244,7 @@ func main() {
     router.HandleFunc("/video/{id}", videoServer(videoRepo))
     router.HandleFunc("/upload/file", UploadFile(videoRepo))
     router.HandleFunc("/upload/meta", UploadMeta(videoMetaRepo))
+    router.HandleFunc("/meta/{id}", RetrieveMeta(videoMetaRepo))
     router.HandleFunc("/search", Search(videoMetaRepo))
 
 

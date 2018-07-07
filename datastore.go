@@ -9,11 +9,12 @@ import (
 	"os"
 
 	"github.com/olivere/elastic"
+	"github.com/satori/go.uuid"
 )
 
 // A video repository stores the actualy video files
 type VideoRepository interface {
-	Upload(context.Context, *multipart.File, *VideoMeta)
+	Upload(context.Context, *multipart.File) (FileId,error)
 	GetContent(string) io.ReadSeeker
 }
 
@@ -51,9 +52,12 @@ func NewElasticsearch(protocol, host string, port int) *Elasticsearch {
 
 
 // 'Uploads' a given file to your file system
-func (localVideoRepo *LocalVideoRepository) Upload(ctx context.Context, file *multipart.File, videoMeta *VideoMeta) {
+func (localVideoRepo *LocalVideoRepository) Upload(ctx context.Context, file *multipart.File) (FileId,error) {
 	log.Print("LocalVideoRepository upload method called")
-	localVideoRepo.SaveVideo(file, videoMeta.FileID)
+	id := uuid.NewV4().String()
+	fileHandle := FileId{id}
+	localVideoRepo.SaveVideo(file, fileHandle.Id)
+	return fileHandle, nil
 }
 
 // Returns a file-like object - in this case an actual file from our filesystem
