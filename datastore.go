@@ -14,7 +14,7 @@ import (
 
 // A video repository stores the actualy video files
 type VideoRepository interface {
-	Upload(context.Context, *multipart.File) (FileId,error)
+	Upload(context.Context, *multipart.File) (FileId, error)
 	GetContent(string) io.ReadSeeker
 }
 
@@ -27,7 +27,6 @@ type LocalVideoRepository struct {
 type Elasticsearch struct {
 	client *elastic.Client
 }
-
 
 // Fairly basic setup - perhaps could ensure the 'location' exists / is valid?
 func NewLocalVideoRepository(location string) *LocalVideoRepository {
@@ -50,9 +49,8 @@ func NewElasticsearch(protocol, host string, port int) *Elasticsearch {
 	}
 }
 
-
 // 'Uploads' a given file to your file system
-func (localVideoRepo *LocalVideoRepository) Upload(ctx context.Context, file *multipart.File) (FileId,error) {
+func (localVideoRepo *LocalVideoRepository) Upload(ctx context.Context, file *multipart.File) (FileId, error) {
 	log.Print("LocalVideoRepository upload method called")
 	id := uuid.NewV4().String()
 	fileHandle := FileId{id}

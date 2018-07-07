@@ -1,202 +1,204 @@
 package main
 
 import (
-    "context"
-    "encoding/json"
-    // "fmt"
-    "log"
-    "net/http"
-    "time"
-    "github.com/gorilla/mux"
-    // "github.com/satori/go.uuid"
-    "github.com/olivere/elastic"
+	"context"
+	"encoding/json"
+	"github.com/gorilla/mux"
+	"log"
+	"net/http"
+	"time"
+	// "github.com/satori/go.uuid"
+	"github.com/olivere/elastic"
 )
 
 // A convenience thing - just an http-handling function
 type WrappedHandler func(response http.ResponseWriter, request *http.Request)
 
-
 //serve video file to client
 func videoServer(videoRepo VideoRepository) WrappedHandler {
-    return func(response http.ResponseWriter, request *http.Request) {
-        // Get URL variables defined in the router
-        vars := mux.Vars(request)
+	return func(response http.ResponseWriter, request *http.Request) {
+		// Get URL variables defined in the router
+		vars := mux.Vars(request)
 
-        // Get a file-like object to serve
-        content := videoRepo.GetContent(vars["id"])
-        
-        // Serve the file
-        http.ServeContent(response, request, "", time.Time{}, content)
+		// Get a file-like object to serve
+		content := videoRepo.GetContent(vars["id"])
 
-        log.Printf("Serving video with ID: `%s`", vars["id"])
-    }
+		// Serve the file
+		http.ServeContent(response, request, "", time.Time{}, content)
+
+		log.Printf("Serving video with ID: `%s`", vars["id"])
+	}
 }
-
 
 // A type which contains metadata to do with the video
 type VideoMeta struct {
-    Title  string
-    FileId string
+	Title  string
+	FileId string
 }
-
 
 // Abstract idea of what a repository for the VideoMeta should be able to do
 type VideoMetaRepository interface {
-    CreateEntry(context.Context, *VideoMeta) error
-    retrieveByFileId(context.Context, string) (*VideoMeta, error)
-    search(context.Context, string) ([]VideoMeta, error)
+	CreateEntry(context.Context, *VideoMeta) error
+	retrieveByFileId(context.Context, string) (*VideoMeta, error)
+	search(context.Context, string) ([]VideoMeta, error)
 }
-
 
 // A concrete implementation of the VideoMetaRepository, backed up by elastic search
 type ElasticVideoMetaRepository struct {
-    client *elastic.Client
+	client *elastic.Client
 }
 
 // The ID of an uploaded file
 type FileId struct {
-    Id string
+	Id string
 }
-
 
 // Called in response to uploading a new file
 func UploadFile(videoRepo VideoRepository) WrappedHandler {
-    return func(response http.ResponseWriter, request *http.Request) {
-        log.Print("Upload file called")
+	return func(response http.ResponseWriter, request *http.Request) {
+		log.Print("Upload file called")
 
-        // Parse the entered values for the form - i think 1024 is the packet size for the video to upload with?
-        err := request.ParseMultipartForm(1024)
-        if err != nil {
-            panic(err)
-        }
+		// Parse the entered values for the form - i think 1024 is the packet size for the video to upload with?
+		err := request.ParseMultipartForm(1024)
+		if err != nil {
+			panic(err)
+		}
 
-        // Get the uploaded file
-        file, _, err := request.FormFile("upload")        
-        if err != nil {
-            panic(err)
-        }
-        defer file.Close()
+		// Get the uploaded file
+		file, _, err := request.FormFile("upload")
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
 
-        // Store the file in the video repository, with the FileID of the given metadata
-        fileHandle, err := videoRepo.Upload(request.Context(), &file)
+		// Store the file in the video repository, with the FileID of the given metadata
+		fileHandle, err := videoRepo.Upload(request.Context(), &file)
 
-        response.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(response).Encode(fileHandle)
-    }
+		response.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(response).Encode(fileHandle)
+	}
 }
 
 // Called in response to uploading the metadata for an already  uploaded file
 func UploadMeta(videoMetaRepo VideoMetaRepository) WrappedHandler {
-    return func(response http.ResponseWriter, request *http.Request) {
-        log.Print("Upload meta called")
+	return func(response http.ResponseWriter, request *http.Request) {
+		log.Print("Upload meta called")
 
-        // get the values
-        decoder := json.NewDecoder(request.Body)
-        var fields VideoMeta
-        err := decoder.Decode(&fields)
-        if err != nil {
-            panic(err)
-        }
-        log.Println(fields.Title)
+		// get the values
+		decoder := json.NewDecoder(request.Body)
+		var fields VideoMeta
+		err := decoder.Decode(&fields)
+		if err != nil {
+			panic(err)
+		}
+		log.Println(fields.Title)
 
-        // store it into the meta repo
-        videoMetaRepo.CreateEntry(request.Context(), &fields)
+		// store it into the meta repo
+		videoMetaRepo.CreateEntry(request.Context(), &fields)
 
-        response.Header().Set("Content-Type", "application/json")
-        // json.NewEncoder(response).Encode(uploadId)
-    }
+		response.Header().Set("Content-Type", "application/json")
+		// json.NewEncoder(response).Encode(uploadId)
+	}
 }
 
 // Get back meta info for a video ID
 func RetrieveMeta(videoMetaRepo VideoMetaRepository) WrappedHandler {
-    return func(response http.ResponseWriter, request *http.Request) {
-        // Get URL variables defined in the router
-        vars := mux.Vars(request)
-        
-        meta, err := videoMetaRepo.retrieveByFileId(request.Context(), vars["id"])
-        if err != nil {
-            panic(err)
-        }
+	return func(response http.ResponseWriter, request *http.Request) {
+		// Get URL variables defined in the router
+		vars := mux.Vars(request)
 
-        log.Printf("Getting meta for ID: `%s`", vars["id"])
-        response.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(response).Encode(meta)
-    }
+		meta, err := videoMetaRepo.retrieveByFileId(request.Context(), vars["id"])
+		if err != nil {
+			http.Error(response, "Internal error", 500)
+		} else if meta == nil {
+			http.NotFound(response, request)
+		} else {
+			log.Printf("Getting meta for ID: `%s`", vars["id"])
+			response.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(response).Encode(meta)
+		}
+
+	}
 }
 
 // When searching for video metas by title
 func Search(videoMetaRepo VideoMetaRepository) WrappedHandler {
-    return func(response http.ResponseWriter, request *http.Request) {
-        log.Print("Search called")
+	return func(response http.ResponseWriter, request *http.Request) {
+		log.Print("Search called")
 
-    }
+	}
 }
 
 // Create the elastic video meta repository
 func NewElasticVideoMetaRepository(ctx context.Context, client *elastic.Client) *ElasticVideoMetaRepository {
 
-    // Check if the index exists
-    exists, err := client.IndexExists("video_meta").Do(ctx)
-    if err != nil {
-        panic(err)
-    }
+	// Check if the index exists
+	exists, err := client.IndexExists("video_meta").Do(ctx)
+	if err != nil {
+		panic(err)
+	}
 
-    // If not, create it
-    if !exists {
-        createIndex, err := client.CreateIndex("video_meta").BodyString(mapping).Do(ctx)
-        if err != nil {
-            panic(err)
-        }
-        if !createIndex.Acknowledged {} // not sure what this means...
-    }
+	// If not, create it
+	if !exists {
+		createIndex, err := client.CreateIndex("video_meta").BodyString(mapping).Do(ctx)
+		if err != nil {
+			panic(err)
+		}
+		if !createIndex.Acknowledged {
+		} // not sure what this means...
+	}
 
-    return &ElasticVideoMetaRepository {client: client}
+	return &ElasticVideoMetaRepository{client: client}
 }
 
 // Create the meta entry - haven't checked if this is working yet...
 func (self *ElasticVideoMetaRepository) CreateEntry(ctx context.Context, videoMeta *VideoMeta) error {
-    put1, err := self.client.Index().
-        Index("video_meta").
-        Type("video").
-        Id(videoMeta.FileId).
-        BodyJson(videoMeta).
-        Do(ctx)
-    if err != nil {
-        // Handle error
-        panic(err)
-    }
-    log.Printf("Indexed video %s to index %s, type %s\n", put1.Id, put1.Index, put1.Type)
-    return nil
+	put1, err := self.client.Index().
+		Index("video_meta").
+		Type("video").
+		Id(videoMeta.FileId).
+		BodyJson(videoMeta).
+		Do(ctx)
+	if err != nil {
+		// Handle error
+		panic(err)
+	}
+	log.Printf("Indexed video %s to index %s, type %s\n", put1.Id, put1.Index, put1.Type)
+	return nil
 }
 
-// Needs some work still - would be used to get the video meta including title.
+// Used to get the video meta including title. TODO  && err.(*elastic.Error).Status != 404 could probably be refactored a bit.
 func (self *ElasticVideoMetaRepository) retrieveByFileId(ctx context.Context, fileId string) (*VideoMeta, error) {
-    log.Printf("retrieving video meta")
-    get1, err := self.client.Get().
-        Index("video_meta").
-        Type("video").
-        Id(fileId).
-        Do(ctx)
-    if err != nil {
-        return nil, err
-    }
-    if get1.Found {
-        log.Printf("Got document %s in version %d from index %s, type %s\n", get1.Id, get1.Version, get1.Index, get1.Type)
-        var meta VideoMeta
-        err = json.Unmarshal(*get1.Source, &meta)
-        if err != nil {
-            return nil, err
-        }
-        log.Printf("Title is: %s", meta.Title)
-        return &meta, nil
-    }
-    return nil, nil
+	log.Printf("retrieving video meta")
+	get1, err := self.client.Get().
+		Index("video_meta").
+		Type("video").
+		Id(fileId).
+		Do(ctx)
+	if err != nil {
+		if err.(*elastic.Error).Status != 404 {
+			log.Printf("error load meta", err)
+			return nil, err
+		} else {
+			return nil, nil
+		}
+	} else if get1.Found {
+		log.Printf("Got document %s in version %d from index %s, type %s\n", get1.Id, get1.Version, get1.Index, get1.Type)
+		var meta VideoMeta
+		err = json.Unmarshal(*get1.Source, &meta)
+		if err != nil {
+			return nil, err
+		}
+		return &meta, nil
+	} else {
+		return nil, nil
+	}
 }
 
 // Needs implemented - would return a list of videos relevant to the searchQuery
 func (self *ElasticVideoMetaRepository) search(ctx context.Context, searchQuery string) ([]VideoMeta, error) {
-    log.Printf("searching videos")
-    return nil, nil
+	log.Printf("searching videos")
+	return nil, nil
 }
 
 // This is the 'schema' of the object we're storing into Elastic search. It's not required, but will improve performance. Should be moved elsewhere though.
@@ -220,40 +222,38 @@ const mapping = `
     }
 }`
 
-
 // Initiate the http server
 func main() {
 
-    // Used while setting up Elastic Client
-    ctx := context.Background()
+	// Used while setting up Elastic Client
+	ctx := context.Background()
 
-    //connect to elasticsearch on localhost:9200
-    elasticClient, err := elastic.NewClient()
-    if err != nil {
-        panic(err)
-    }
+	//connect to elasticsearch on localhost:9200
+	elasticClient, err := elastic.NewClient()
+	if err != nil {
+		panic(err)
+	}
 
-    // Set up an elasticsearch video meta repo
-    videoMetaRepo := NewElasticVideoMetaRepository(ctx, elasticClient)
+	// Set up an elasticsearch video meta repo
+	videoMetaRepo := NewElasticVideoMetaRepository(ctx, elasticClient)
 
-    // Set up a local video repo in then "videos" directory
-    videoRepo := NewLocalVideoRepository("videos")
+	// Set up a local video repo in then "videos" directory
+	videoRepo := NewLocalVideoRepository("videos")
 
-    // Using a router lets us be more flexible with URL variables
-    router := mux.NewRouter()
-    router.HandleFunc("/video/{id}", videoServer(videoRepo))
-    router.HandleFunc("/upload/file", UploadFile(videoRepo))
-    router.HandleFunc("/upload/meta", UploadMeta(videoMetaRepo))
-    router.HandleFunc("/meta/{id}", RetrieveMeta(videoMetaRepo))
-    router.HandleFunc("/search", Search(videoMetaRepo))
+	// Using a router lets us be more flexible with URL variables
+	router := mux.NewRouter()
+	router.HandleFunc("/video/{id}", videoServer(videoRepo))
+	router.HandleFunc("/upload/file", UploadFile(videoRepo))
+	router.HandleFunc("/upload/meta", UploadMeta(videoMetaRepo))
+	router.HandleFunc("/meta/{id}", RetrieveMeta(videoMetaRepo))
+	router.HandleFunc("/search", Search(videoMetaRepo))
 
+	// Serve static files to the client
+	router.PathPrefix("/").Handler(http.FileServer(http.Dir("./public/")))
 
-    // Serve static files to the client
-    router.PathPrefix("/").Handler(http.FileServer(http.Dir("./public/")))
+	// The router handles all requests, then passes them along to the appropriate function
+	http.Handle("/", router)
 
-    // The router handles all requests, then passes them along to the appropriate function
-    http.Handle("/", router)
-
-    // Listens on port 8080
-    log.Fatal(http.ListenAndServe(":8080", nil))
+	// Listens on port 8080
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
