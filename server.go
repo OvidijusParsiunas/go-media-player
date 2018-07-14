@@ -76,18 +76,18 @@ func UploadFile(videoRepo VideoRepository) WrappedHandler {
 		}
 		defer file.Close()
 
+		// Store the file in the video repository, with the FileID of the given metadata
+		fileHandle, err := videoRepo.Upload(request.Context(), &file)
+
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"foo": "bar",
-			"nbf": time.Date(2015, 10, 10, 12, 0, 0, 0, time.UTC).Unix(),
+			"FileID": fileHandle.Id,
+			"nbf":    time.Date(2015, 10, 10, 12, 0, 0, 0, time.UTC).Unix(),
 		})
 
 		// Sign and get the complete encoded token as a string using the secret
 		tokenString, err := token.SignedString([]byte("abc123"))
 
 		log.Print(tokenString, err)
-
-		// Store the file in the video repository, with the FileID of the given metadata
-		fileHandle, err := videoRepo.Upload(request.Context(), &file)
 
 		r := FileUploadResponse{fileHandle.Id, tokenString}
 
@@ -98,7 +98,7 @@ func UploadFile(videoRepo VideoRepository) WrappedHandler {
 
 type UploadMetaBody struct {
 	MetaToken string
-	Meta      VideoMeta
+	Title     string
 }
 
 // Called in response to uploading the metadata for an already  uploaded file
@@ -113,7 +113,7 @@ func UploadMeta(videoMetaRepo VideoMetaRepository) WrappedHandler {
 		if err != nil {
 			panic(err)
 		}
-		log.Println(fields.Meta.Title)
+		log.Println(fields.Title)
 		log.Println(fields.MetaToken)
 
 		token, err := jwt.Parse(fields.MetaToken, func(token *jwt.Token) (interface{}, error) {
@@ -122,27 +122,30 @@ func UploadMeta(videoMetaRepo VideoMetaRepository) WrappedHandler {
 				return nil, nil
 			}
 
-			// hmacSampleSecret is a []byte containing your secret, e.g. []byte("my_secret_key")
 			return []byte("abc123"), nil
 		})
 
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-			log.Print(claims["foo"], claims["nbf"])
+			log.Print(claims["FileID"], claims["nbf"])
+			meta := VideoMeta{fields.Title, claims["FileID"].(string)}
+			log.Print("meta: ", meta)
+			// store it into the meta repo
+			videoMetaRepo.CreateEntry(request.Context(), &meta)
+
+			response.Header().Set("Content-Type", "application/json")
+			// json.NewEncoder(response).Encode(uploadId)
 		} else {
 			log.Print(err)
 		}
 
-		// store it into the meta repo
-		videoMetaRepo.CreateEntry(request.Context(), &fields.Meta)
-
-		response.Header().Set("Content-Type", "application/json")
-		// json.NewEncoder(response).Encode(uploadId)
 	}
 }
 
 // Get back meta info for a video ID
 func RetrieveMeta(videoMetaRepo VideoMetaRepository) WrappedHandler {
 	return func(response http.ResponseWriter, request *http.Request) {
+		log.Print("Getting meta")
+
 		// Get URL variables defined in the router
 		vars := mux.Vars(request)
 
@@ -263,6 +266,7 @@ const mapping = `
 
 // Initiate the http server
 func main() {
+	log.Print("Starting server...")
 
 	// Used while setting up Elastic Client
 	ctx := context.Background()
