@@ -7,7 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
-	// "github.com/satori/go.uuid"
+	"github.com/dgrijalva/jwt-go"
 	"github.com/olivere/elastic"
 )
 
@@ -53,6 +53,11 @@ type FileId struct {
 	Id string
 }
 
+type FileUploadResponse struct {
+    Id string
+    MetaToken string
+}
+
 // Called in response to uploading a new file
 func UploadFile(videoRepo VideoRepository) WrappedHandler {
 	return func(response http.ResponseWriter, request *http.Request) {
@@ -71,12 +76,30 @@ func UploadFile(videoRepo VideoRepository) WrappedHandler {
 		}
 		defer file.Close()
 
+
+        token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+            "foo": "bar",
+            "nbf": time.Date(2015, 10, 10, 12, 0, 0, 0, time.UTC).Unix(),
+        })
+
+        // Sign and get the complete encoded token as a string using the secret
+        tokenString, err := token.SignedString([]byte("abc123"))
+
+        log.Print(tokenString, err)
+
 		// Store the file in the video repository, with the FileID of the given metadata
 		fileHandle, err := videoRepo.Upload(request.Context(), &file)
 
+        r := FileUploadResponse{fileHandle.Id, tokenString}
+
 		response.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(response).Encode(fileHandle)
+		json.NewEncoder(response).Encode(r)
 	}
+}
+
+type UploadMetaBody struct {
+    MetaToken string
+    Meta VideoMeta
 }
 
 // Called in response to uploading the metadata for an already  uploaded file
@@ -86,15 +109,33 @@ func UploadMeta(videoMetaRepo VideoMetaRepository) WrappedHandler {
 
 		// get the values
 		decoder := json.NewDecoder(request.Body)
-		var fields VideoMeta
+		var fields UploadMetaBody
 		err := decoder.Decode(&fields)
 		if err != nil {
 			panic(err)
 		}
-		log.Println(fields.Title)
+		log.Println(fields.Meta.Title)
+        log.Println(fields.MetaToken)
+
+        token, err := jwt.Parse(fields.MetaToken, func(token *jwt.Token) (interface{}, error) {
+            // Don't forget to validate the alg is what you expect:
+            if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+                return nil, nil
+            }
+
+            // hmacSampleSecret is a []byte containing your secret, e.g. []byte("my_secret_key")
+            return []byte("abc123"), nil
+        })
+
+        if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+            log.Print(claims["foo"], claims["nbf"])
+        } else {    
+            log.Print(err)
+        }
+        
 
 		// store it into the meta repo
-		videoMetaRepo.CreateEntry(request.Context(), &fields)
+		videoMetaRepo.CreateEntry(request.Context(), &fields.Meta)
 
 		response.Header().Set("Content-Type", "application/json")
 		// json.NewEncoder(response).Encode(uploadId)

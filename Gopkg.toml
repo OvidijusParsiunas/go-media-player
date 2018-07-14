@@ -12,3 +12,6 @@
 
 [[constraint]]
   name = "github.com/satori/go.uuid"
+
+[[constraint]]
+  name = "github.com/dgrijalva/jwt-go"
